@@ -19,11 +19,20 @@ nltk.download('punkt_tab', quiet=True)
 class DocumentSummarizer:
     def __init__(self):
         try:
+            # Try loading the model directly
             self.nlp = spacy.load("en_core_web_sm")
-        except:
-            import os
-            os.system("python3 -m spacy download en_core_web_sm")
-            self.nlp = spacy.load("en_core_web_sm")
+        except Exception:
+            # Fallback for local environments or if the requirement installation fails
+            try:
+                import os
+                # Using a more robust download method if needed
+                os.system("python3 -m spacy download en_core_web_sm")
+                self.nlp = spacy.load("en_core_web_sm")
+            except Exception as e:
+                # If everything fails, use a blank English model as a last resort
+                print(f"Warning: Could not load en_core_web_sm, using blank English model. Error: {e}")
+                self.nlp = spacy.blank("en")
+                self.nlp.add_pipe("sentencizer")
         
         self.stop_words = set(stopwords.words('english'))
         # Initialize abstractive summarizer as a bonus feature
