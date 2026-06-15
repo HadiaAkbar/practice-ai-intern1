@@ -1,0 +1,11 @@
+nltk
+spacy
+streamlit
+transformers
+PyPDF2
+reportlab
+pandas
+matplotlib
+seaborn
+torch
+scikit-learn
