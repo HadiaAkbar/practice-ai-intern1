@@ -2,184 +2,129 @@ import nltk
 import spacy
 import heapq
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import pipeline
 import PyPDF2
 import os
+import sys
 
-# Download necessary NLTK data
+# Setup NLTK
 nltk.download('punkt', quiet=True)
 nltk.download('stopwords', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
 class DocumentSummarizer:
     def __init__(self):
+        # Robust spaCy loading (crucial for deployment)
         self.nlp = None
-        # Try different ways to load the model
-        for model_name in ["en_core_web_sm", "en"]:
+        for name in ["en_core_web_sm", "en"]:
             try:
-                self.nlp = spacy.load(model_name)
-                print(f"Successfully loaded spaCy model: {model_name}")
+                self.nlp = spacy.load(name)
                 break
-            except Exception:
+            except:
                 continue
         
         if self.nlp is None:
             try:
-                import os
-                import sys
-                print("Attempting to download en_core_web_sm...")
                 os.system(f"{sys.executable} -m spacy download en_core_web_sm")
                 self.nlp = spacy.load("en_core_web_sm")
-            except Exception as e:
-                print(f"Warning: Could not load or download en_core_web_sm. Error: {e}")
-                print("Falling back to blank English model with sentencizer.")
+            except:
                 self.nlp = spacy.blank("en")
                 self.nlp.add_pipe("sentencizer")
         
         self.stop_words = set(stopwords.words('english'))
-        # Initialize abstractive summarizer as a bonus feature
+        
+        # Load AI model
         try:
-            # Using a smaller model for stability in the environment
-            self.abstractive_model = pipeline("text2text-generation", model="t5-small")
-        except Exception as e:
-            print(f"Error loading abstractive model: {e}")
-            self.abstractive_model = None
+            self.ai_model = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+        except:
+            self.ai_model = None
 
-    def preprocess_text(self, text):
-        # Lowercasing
-        text = text.lower()
-        # Tokenization and sentence segmentation
-        doc = self.nlp(text)
-        sentences = [sent.text.strip() for sent in doc.sents]
-        words = word_tokenize(text)
-        # Stopword removal
-        filtered_words = [word for word in words if word.isalnum() and word not in self.stop_words]
-        return sentences, filtered_words
+    def get_sentences_and_words(self, text):
+        doc = self.nlp(text.lower())
+        sentences = [s.text.strip() for s in doc.sents]
+        words = word_tokenize(text.lower())
+        clean_words = [w for w in words if w.isalnum() and w not in self.stop_words]
+        return sentences, clean_words
 
-    def frequency_based_summary(self, text, num_sentences=3):
-        sentences, filtered_words = self.preprocess_text(text)
+    def frequency_based_summary(self, text, count=3):
+        sents, words = self.get_sentences_and_words(text)
         
-        word_frequencies = {}
-        for word in filtered_words:
-            word_frequencies[word] = word_frequencies.get(word, 0) + 1
-            
-        if not word_frequencies:
-            return ""
-
-        maximum_frequency = max(word_frequencies.values())
-        for word in word_frequencies.keys():
-            word_frequencies[word] = (word_frequencies[word] / maximum_frequency)
-
-        sentence_scores = {}
-        for sent in sentences:
-            for word in word_tokenize(sent.lower()):
-                if word in word_frequencies:
-                    if len(sent.split(' ')) < 30:
-                        sentence_scores[sent] = sentence_scores.get(sent, 0) + word_frequencies[word]
-
-        summary_sentences = heapq.nlargest(num_sentences, sentence_scores, key=sentence_scores.get)
-        summary = ' '.join(summary_sentences)
-        return summary
-
-    def tfidf_based_summary(self, text, num_sentences=3):
-        sentences, _ = self.preprocess_text(text)
-        if len(sentences) <= num_sentences:
-            return text
-
-        vectorizer = TfidfVectorizer(stop_words='english')
-        tfidf_matrix = vectorizer.fit_transform(sentences)
+        # Count words
+        freq = {}
+        for w in words:
+            freq[w] = freq.get(w, 0) + 1
         
-        # Sum TF-IDF scores for each sentence
-        sentence_scores = tfidf_matrix.toarray().sum(axis=1)
+        if not freq: return ""
         
-        # Rank sentences
-        ranked_sentences = [sentences[i] for i in sentence_scores.argsort()[::-1]]
-        summary = ' '.join(ranked_sentences[:num_sentences])
-        return summary
+        # Score sentences
+        scores = {}
+        for s in sents:
+            for w in word_tokenize(s.lower()):
+                if w in freq:
+                    scores[s] = scores.get(s, 0) + freq[w]
+        
+        best_sents = heapq.nlargest(count, scores, key=scores.get)
+        return " ".join(best_sents)
+
+    def tfidf_based_summary(self, text, count=3):
+        sents, _ = self.get_sentences_and_words(text)
+        if len(sents) <= count: return text
+        
+        vec = TfidfVectorizer(stop_words='english')
+        matrix = vec.fit_transform(sents)
+        scores = matrix.toarray().sum(axis=1)
+        
+        top_idx = scores.argsort()[-count:][::-1]
+        return " ".join([sents[i] for i in sorted(top_idx)])
 
     def abstractive_summary(self, text):
-        if not self.abstractive_model:
-            return "Abstractive summarization model is currently unavailable."
-        # Handle long text by chunking if necessary
-        max_chunk = 512
-        chunks = [text[i:i+max_chunk] for i in range(0, len(text), max_chunk)]
+        if not self.ai_model: return "AI model not loaded."
         try:
-            summaries = self.abstractive_model(chunks, max_length=100, min_length=30, do_sample=False)
-            return " ".join([s.get('generated_text', s.get('summary_text', '')) for s in summaries])
+            # Simple chunking for long text
+            res = self.ai_model(text[:1024], max_length=130, min_length=30, do_sample=False)
+            return res[0]['summary_text']
         except Exception as e:
-            return f"Error during abstractive summarization: {str(e)}"
+            return f"Error: {str(e)}"
 
     def get_analytics(self, text):
-        sentences, filtered_words = self.preprocess_text(text)
+        sents, words = self.get_sentences_and_words(text)
+        word_counts = pd.Series(words).value_counts().head(10)
         
-        # Word frequency analysis
-        word_freq = pd.Series(filtered_words).value_counts().head(10)
-        
-        # Keyword extraction (top 5)
-        keywords = word_freq.index.tolist()[:5]
-        
-        # Sentence importance scoring (using frequency)
-        word_frequencies = {}
-        for word in filtered_words:
-            word_frequencies[word] = word_frequencies.get(word, 0) + 1
-        
-        sentence_scores = []
-        for sent in sentences:
-            score = sum(word_frequencies.get(word, 0) for word in word_tokenize(sent.lower()) if word in word_frequencies)
-            sentence_scores.append(score)
-            
         return {
-            "word_freq": word_freq.to_dict(),
-            "keywords": keywords,
-            "sentence_scores": sentence_scores,
-            "num_sentences": len(sentences),
-            "num_words": len(filtered_words)
+            "word_freq": word_counts.to_dict(),
+            "keywords": word_counts.index.tolist()[:5],
+            "num_sentences": len(sents),
+            "num_words": len(words)
         }
 
-def read_file(file_path):
-    _, extension = os.path.splitext(file_path)
-    if extension.lower() == '.txt':
-        with open(file_path, 'r', encoding='utf-8') as f:
+def read_file(path):
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.txt':
+        with open(path, 'r', encoding='utf-8') as f:
             return f.read()
-    elif extension.lower() == '.pdf':
+    elif ext == '.pdf':
         text = ""
-        with open(file_path, 'rb') as f:
-            pdf_reader = PyPDF2.PdfReader(f)
-            for page in pdf_reader.pages:
-                text += page.extract_text()
+        with open(path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            for p in reader.pages:
+                text += p.extract_text()
         return text
-    return None
+    return ""
 
-def save_summary(summary, output_path, format='txt'):
-    if format == 'txt':
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(summary)
-    elif format == 'pdf':
+def save_summary(text, path, type='txt'):
+    if type == 'txt':
+        with open(path, 'w') as f:
+            f.write(text)
+    elif type == 'pdf':
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas
-        c = canvas.Canvas(output_path, pagesize=letter)
-        width, height = letter
-        text_object = c.beginText(40, height - 40)
-        text_object.setFont("Helvetica", 12)
-        
-        # Simple line wrapping
-        lines = summary.split('\n')
-        for line in lines:
-            # Very basic wrap
-            words = line.split()
-            current_line = ""
-            for word in words:
-                if len(current_line + word) < 90:
-                    current_line += word + " "
-                else:
-                    text_object.textLine(current_line)
-                    current_line = word + " "
-            text_object.textLine(current_line)
-            
-        c.drawText(text_object)
+        c = canvas.Canvas(path, pagesize=letter)
+        t = c.beginText(40, 750)
+        t.setFont("Helvetica", 10)
+        for line in text.split('.'):
+            t.textLine(line.strip() + '.')
+        c.drawText(t)
         c.save()

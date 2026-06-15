@@ -1,117 +1,92 @@
 import streamlit as st
 import os
 from summarizer import DocumentSummarizer, read_file, save_summary
-import matplotlib.pyplot as plt
 import pandas as pd
 
-# Page Configuration
-st.set_page_config(page_title="AI-Powered Document Summarizer", layout="wide")
+# Simple Page Config
+st.set_page_config(page_title="Intern Project: AI Summarizer")
 
-# Initialize Summarizer
+# Load the summarizer (cached so it doesn't reload every time)
 @st.cache_resource
-def load_summarizer():
+def get_model():
     return DocumentSummarizer()
 
-summarizer = load_summarizer()
+model = get_model()
 
-# Sidebar
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Summarizer", "Analytics", "About"])
+# Simple Sidebar
+st.sidebar.title("Menu")
+choice = st.sidebar.selectbox("Select Page", ["Home", "Analytics", "About"])
 
-st.title("TEYZIX CORE Internship - AI Summarizer")
+st.title("AI Document Summarizer")
+st.markdown("---")
 
-if page == "Summarizer":
-    st.header("Document Summarization")
+if choice == "Home":
+    st.subheader("Summarize Your Document")
     
-    # Input Method
-    input_method = st.radio("Select Input Method", ["Direct Text", "Upload File"])
+    # Input options
+    option = st.selectbox("How to input text?", ["Type it here", "Upload a file"])
     
-    input_text = ""
-    if input_method == "Direct Text":
-        input_text = st.text_area("Enter text to summarize", height=300)
+    text_data = ""
+    if option == "Type it here":
+        text_data = st.text_area("Paste your text here:", height=200)
     else:
-        uploaded_file = st.file_uploader("Choose a file", type=["txt", "pdf"])
-        if uploaded_file is not None:
-            # Save temporary file
-            with open(uploaded_file.name, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            input_text = read_file(uploaded_file.name)
-            os.remove(uploaded_file.name)
+        file = st.file_uploader("Upload TXT or PDF", type=["txt", "pdf"])
+        if file:
+            # Simple way to handle uploaded file
+            with open("temp_file", "wb") as f:
+                f.write(file.getbuffer())
+            text_data = read_file("temp_file")
+            os.remove("temp_file")
 
-    if input_text:
-        col1, col2 = st.columns(2)
+    if text_data:
+        # Settings
+        st.write("### Settings")
+        method = st.radio("Choose Method:", ["Simple Frequency", "TF-IDF", "AI Abstractive"])
+        num_sent = st.slider("Number of sentences:", 1, 10, 3)
         
-        with col1:
-            st.subheader("Summarization Settings")
-            method = st.selectbox("Select Approach", ["Frequency-based", "TF-IDF based", "Abstractive (Transformers)"])
-            summary_length = st.slider("Summary Length (Number of sentences)", 1, 10, 3)
-            
-        if st.button("Generate Summary"):
-            with st.spinner("Processing..."):
-                if method == "Frequency-based":
-                    summary = summarizer.frequency_based_summary(input_text, summary_length)
-                elif method == "TF-IDF based":
-                    summary = summarizer.tfidf_based_summary(input_text, summary_length)
+        if st.button("Start Summarizing"):
+            with st.spinner("Wait a moment..."):
+                if method == "Simple Frequency":
+                    result = model.frequency_based_summary(text_data, num_sent)
+                elif method == "TF-IDF":
+                    result = model.tfidf_based_summary(text_data, num_sent)
                 else:
-                    summary = summarizer.abstractive_summary(input_text)
+                    result = model.abstractive_summary(text_data)
                 
-                st.session_state['last_summary'] = summary
-                st.session_state['last_input'] = input_text
-
-            st.subheader("Summary Result")
-            st.write(summary)
+                st.session_state['summary'] = result
+                st.session_state['original'] = text_data
             
-            # Export options
-            export_col1, export_col2 = st.columns(2)
-            with export_col1:
-                if st.button("Export as TXT"):
-                    save_summary(summary, "outputs/summary.txt", "txt")
-                    st.success("Saved to outputs/summary.txt")
-            with export_col2:
-                if st.button("Export as PDF"):
-                    save_summary(summary, "outputs/summary.pdf", "pdf")
-                    st.success("Saved to outputs/summary.pdf")
+            st.success("Done!")
+            st.write("### Summary:")
+            st.write(result)
+            
+            # Export buttons
+            c1, c2 = st.columns(2)
+            if c1.button("Save as Text"):
+                save_summary(result, "outputs/summary.txt", "txt")
+                st.info("Saved to outputs/summary.txt")
+            if c2.button("Save as PDF"):
+                save_summary(result, "outputs/summary.pdf", "pdf")
+                st.info("Saved to outputs/summary.pdf")
 
-            with st.expander("Compare Original vs Summarized"):
-                c1, c2 = st.columns(2)
-                c1.markdown("**Original Text**")
-                c1.write(input_text)
-                c2.markdown("**Summarized Text**")
-                c2.write(summary)
-
-elif page == "Analytics":
-    st.header("Document Analytics")
-    
-    if 'last_input' in st.session_state:
-        text = st.session_state['last_input']
-        analytics = summarizer.get_analytics(text)
+elif choice == "Analytics":
+    st.subheader("Data Analysis")
+    if 'original' in st.session_state:
+        data = model.get_analytics(st.session_state['original'])
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Sentences", analytics['num_sentences'])
-        col2.metric("Filtered Words", analytics['num_words'])
-        col3.write("**Top Keywords**")
-        col3.write(", ".join(analytics['keywords']))
+        st.write(f"**Total Sentences:** {data['num_sentences']}")
+        st.write(f"**Total Words (clean):** {data['num_words']}")
+        st.write(f"**Top Keywords:** {', '.join(data['keywords'])}")
         
-        st.subheader("Word Frequency Analysis")
-        df_freq = pd.DataFrame(list(analytics['word_freq'].items()), columns=['Word', 'Frequency'])
-        st.bar_chart(df_freq.set_index('Word'))
-        
-        st.subheader("Sentence Importance Scoring")
-        st.line_chart(analytics['sentence_scores'])
+        # Simple Charts
+        st.write("#### Word Frequency Chart")
+        df = pd.DataFrame(list(data['word_freq'].items()), columns=['Word', 'Count'])
+        st.bar_chart(df.set_index('Word'))
     else:
-        st.info("Please run the summarizer first to see analytics.")
+        st.warning("Please summarize something first!")
 
-elif page == "About":
-    st.header("About the Project")
-    st.write("""
-    This AI-Powered Document Summarization System was developed as part of the TEYZIX CORE Internship (June Batch).
-    
-    **Features:**
-    - Extractive Summarization (Frequency & TF-IDF)
-    - Abstractive Summarization (BART Transformer)
-    - PDF & TXT File Support
-    - Interactive Analytics Dashboard
-    - Export functionality (TXT/PDF)
-    
-    **Developed by:** Intern
-    """)
+else:
+    st.subheader("Project Info")
+    st.write("Developed by: AI Intern")
+    st.write("Project: AI-Powered Document Summarizer")
+    st.write("Company: TEYZIX CORE")
