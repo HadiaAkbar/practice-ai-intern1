@@ -1,56 +1,40 @@
 import nltk
-import spacy
 import heapq
 import pandas as pd
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, sent_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import pipeline
 import PyPDF2
 import os
-import sys
 
-# Setup NLTK
+# Setup NLTK (very reliable on Streamlit)
 nltk.download('punkt', quiet=True)
 nltk.download('stopwords', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
 class DocumentSummarizer:
     def __init__(self):
-        # Robust spaCy loading (crucial for deployment)
-        self.nlp = None
-        for name in ["en_core_web_sm", "en"]:
-            try:
-                self.nlp = spacy.load(name)
-                break
-            except:
-                continue
-        
-        if self.nlp is None:
-            try:
-                os.system(f"{sys.executable} -m spacy download en_core_web_sm")
-                self.nlp = spacy.load("en_core_web_sm")
-            except:
-                self.nlp = spacy.blank("en")
-                self.nlp.add_pipe("sentencizer")
-        
+        # We use NLTK instead of spaCy for better stability on Streamlit Cloud
         self.stop_words = set(stopwords.words('english'))
         
         # Load AI model
         try:
+            # Using a very stable, small model
             self.ai_model = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
         except:
             self.ai_model = None
 
     def get_sentences_and_words(self, text):
-        doc = self.nlp(text.lower())
-        sentences = [s.text.strip() for s in doc.sents]
+        # Use NLTK's sent_tokenize instead of spaCy
+        sentences = sent_tokenize(text)
         words = word_tokenize(text.lower())
         clean_words = [w for w in words if w.isalnum() and w not in self.stop_words]
         return sentences, clean_words
 
     def frequency_based_summary(self, text, count=3):
         sents, words = self.get_sentences_and_words(text)
+        if not sents: return ""
         
         # Count words
         freq = {}
@@ -78,6 +62,7 @@ class DocumentSummarizer:
         scores = matrix.toarray().sum(axis=1)
         
         top_idx = scores.argsort()[-count:][::-1]
+        # Keep original order
         return " ".join([sents[i] for i in sorted(top_idx)])
 
     def abstractive_summary(self, text):
@@ -124,7 +109,9 @@ def save_summary(text, path, type='txt'):
         c = canvas.Canvas(path, pagesize=letter)
         t = c.beginText(40, 750)
         t.setFont("Helvetica", 10)
+        # Simple wrapping
         for line in text.split('.'):
-            t.textLine(line.strip() + '.')
+            if line.strip():
+                t.textLine(line.strip() + '.')
         c.drawText(t)
         c.save()
