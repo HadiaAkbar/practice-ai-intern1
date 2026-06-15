@@ -25,8 +25,9 @@ class DocumentSummarizer:
             # Fallback for local environments or if the requirement installation fails
             try:
                 import os
-                # Using a more robust download method if needed
-                os.system("python3 -m spacy download en_core_web_sm")
+                import sys
+                # Use the current Python executable to ensure it's installed in the right environment
+                os.system(f"{sys.executable} -m spacy download en_core_web_sm")
                 self.nlp = spacy.load("en_core_web_sm")
             except Exception as e:
                 # If everything fails, use a blank English model as a last resort
