@@ -41,7 +41,7 @@ if choice == "Home":
     if text_data:
         # Settings
         st.write("### Settings")
-        method = st.radio("Choose Method:", ["Simple Frequency", "TF-IDF", "AI Abstractive"])
+        method = st.radio("Choose Method:", ["Simple Frequency", "TF-IDF"])
         num_sent = st.slider("Number of sentences:", 1, 10, 3)
         
         if st.button("Start Summarizing"):

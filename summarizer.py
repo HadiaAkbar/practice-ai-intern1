@@ -4,7 +4,6 @@ import pandas as pd
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize, sent_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
-from transformers import pipeline
 import PyPDF2
 import os
 
@@ -18,12 +17,8 @@ class DocumentSummarizer:
         # We use NLTK instead of spaCy for better stability on Streamlit Cloud
         self.stop_words = set(stopwords.words('english'))
         
-        # Load AI model
-        try:
-            # Using a very stable, small model
-            self.ai_model = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-        except:
-            self.ai_model = None
+        # AI model disabled to ensure deployment stability on limited environments
+        self.ai_model = None
 
     def get_sentences_and_words(self, text):
         # Use NLTK's sent_tokenize instead of spaCy
